@@ -8,12 +8,13 @@ contract Whitelist {
     address public owner;
 
     mapping(address => bool) private _whitelisted;
+
+    // Frontend display required
     address[] private _addresses;
     mapping(address => uint256) private _indexPlusOne;
 
     event AddressAdded(address indexed addr);
     event AddressRemoved(address indexed addr);
-    event OwnerChanged(address indexed previousOwner, address indexed newOwner);
 
     error NotOwner();
     error ZeroAddress();
@@ -28,12 +29,6 @@ contract Whitelist {
     constructor(address initialOwner) {
         if (initialOwner == address(0)) revert ZeroAddress();
         owner = initialOwner;
-    }
-
-    function changeOwner(address addr) external onlyOwner {
-        if (addr == address(0)) revert ZeroAddress();
-        owner = addr;
-        emit OwnerChanged(msg.sender, addr);
     }
 
     function addAddress(address addr) external onlyOwner {
@@ -91,7 +86,7 @@ contract Whitelist {
         return _addresses;
     }
 
-    function count() external view returns (uint256) {
+    function addressesCount() external view returns (uint256) {
         return _addresses.length;
     }
 }
