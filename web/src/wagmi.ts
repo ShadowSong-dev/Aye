@@ -1,16 +1,19 @@
-import { createConfig, http } from 'wagmi'
+import { getDefaultConfig } from '@rainbow-me/rainbowkit'
+import { http } from 'wagmi'
 import { sepolia, mainnet } from 'wagmi/chains'
-import { injected, metaMask } from 'wagmi/connectors'
 
 const sepoliaRpc = import.meta.env.VITE_SEPOLIA_RPC || undefined
+const projectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID || 'YOUR_PROJECT_ID'
 
-export const config = createConfig({
+export const config = getDefaultConfig({
+  appName: 'Aye',
+  projectId,
   chains: [sepolia, mainnet],
-  connectors: [injected(), metaMask()],
   transports: {
     [sepolia.id]: sepoliaRpc ? http(sepoliaRpc) : http(),
     [mainnet.id]: http(),
   },
+  ssr: false,
 })
 
 declare module 'wagmi' {
