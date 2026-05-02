@@ -32,7 +32,8 @@ export function AgentPage() {
       <div>
         <h1>Agent</h1>
         <p className="muted small">
-          Status of the LLM-powered loop that proposes intents to your queue.
+          Send a request below — the agent translates it into a single intent
+          and queues it for your Aye/Nay.
         </p>
       </div>
 
@@ -73,35 +74,27 @@ export function AgentPage() {
 
       <Card>
         <CardHeader>
-          <h3 style={{ margin: 0 }}>Characters</h3>
-        </CardHeader>
-        <div className="stack">
-          <CharacterRow
-            name="Normal"
-            description="Conservative DeFi trader. Hard cap 2 USDC per swap, only the Uniswap V3 router on Sepolia."
-            command="pnpm start"
-            tone="success"
-          />
-        </div>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <h3 style={{ margin: 0 }}>How it talks to the web</h3>
         </CardHeader>
         <ol className="stack" style={{ paddingLeft: 20, gap: 'var(--s-2)' }}>
           <li className="small">
-            Every <code>LOOP_INTERVAL_MS</code> (default 2 min), <code>core/</code>{' '}
-            calls <code>gpt-4o-mini</code> with the active character's
-            system prompt.
+            You submit a prompt above → POST <code>/api/command</code> on this
+            dev server queues it.
           </li>
           <li className="small">
-            The model uses tools <code>checkPrice</code> and{' '}
-            <code>proposeIntent</code>; the latter computes the intent hash and
-            POSTs to <code>/api/intent</code> on this dev server.
+            <code>core/</code> polls <code>/api/command/next</code> every{' '}
+            <code>COMMAND_POLL_MS</code> (default 3s), pops one command, and
+            calls <code>deepseek-chat</code> with the <code>checkPrice</code>{' '}
+            and <code>proposeIntent</code> tools.
           </li>
           <li className="small">
-            This page polls <code>/api/intent/meta</code> every 4 seconds.
+            The model translates your request into a single{' '}
+            <code>proposeIntent</code> call; the tool computes the intent hash
+            and POSTs it to <code>/api/intent</code>.
+          </li>
+          <li className="small">
+            The Queue page polls <code>/api/intent</code> every 4 seconds and
+            renders any pending intent for your Aye/Nay.
           </li>
         </ol>
       </Card>
@@ -155,15 +148,14 @@ function CommandComposer({
       </CardHeader>
       <div className="stack" style={{ gap: 'var(--s-3)' }}>
         <p className="small muted" style={{ margin: 0 }}>
-          Type a one-shot instruction for the agent. It runs as the next turn's
-          prompt; the agent still uses the active character's system prompt and
-          tools, so any resulting onchain action lands in the queue for your
-          Aye/Nay.
+          Describe the on-chain action you want. The agent translates it
+          directly into a single intent (no judgement, no editorialising) and
+          drops it in the queue for your Aye/Nay.
         </p>
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
-          placeholder="e.g. Check ETH price and propose a 1 USDC swap if it dropped."
+          placeholder="What on-chain action do you want to propose?"
           rows={3}
           disabled={busy}
           onKeyDown={(e) => {
@@ -252,37 +244,3 @@ function Stat({
   )
 }
 
-function CharacterRow({
-  name,
-  description,
-  command,
-  tone,
-}: {
-  name: string
-  description: string
-  command: string
-  tone: 'success' | 'danger'
-}) {
-  return (
-    <div
-      className="stack"
-      style={{
-        gap: 'var(--s-2)',
-        padding: 'var(--s-3)',
-        borderRadius: 'var(--r-md)',
-        border: '1px solid var(--c-card-border)',
-      }}
-    >
-      <div className="row-between">
-        <div className="row" style={{ gap: 'var(--s-2)' }}>
-          <Badge tone={tone}>
-            <Sparkles size={12} />
-            {name}
-          </Badge>
-        </div>
-        <code className="kbd">{command}</code>
-      </div>
-      <p className="small muted">{description}</p>
-    </div>
-  )
-}
