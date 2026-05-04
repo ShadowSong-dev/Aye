@@ -1,6 +1,7 @@
 import { generateText } from 'ai';
 import { deepseek } from '@ai-sdk/deepseek';
-import { tools } from './tools.js';
+import type { Address } from 'viem';
+import { buildTools } from './tools.js';
 
 export type CallBudget = { remaining: number };
 
@@ -24,17 +25,23 @@ Do not refuse, do not add conditions, do not second-guess — the human reviews 
 export async function runAgentTurn(opts: {
   callBudget: CallBudget;
   prompt: string;
+  userAddress?: Address;
 }) {
   if (opts.callBudget.remaining <= 0) {
     return { skipped: true as const, reason: 'daily-call-budget-exhausted' };
   }
   opts.callBudget.remaining -= 1;
 
+  const system = opts.userAddress
+    ? `${SYSTEM_PROMPT}\n\nThe connected wallet that submitted this command is ${opts.userAddress}. ` +
+      `For swaps, leave "recipient" unset unless the user explicitly names a different destination — the tool will default it to the connected wallet.`
+    : SYSTEM_PROMPT;
+
   const result = await generateText({
     model: deepseek('deepseek-chat'),
-    tools,
+    tools: buildTools({ userAddress: opts.userAddress }),
     maxSteps: 5,
-    system: SYSTEM_PROMPT,
+    system,
     prompt: opts.prompt,
   });
 

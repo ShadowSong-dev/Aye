@@ -43,11 +43,14 @@ export type CommandMeta = {
   totalConsumed: number
 }
 
-export async function submitCommand(prompt: string): Promise<{ id: string; pending: number }> {
+export async function submitCommand(
+  prompt: string,
+  userAddress?: `0x${string}`,
+): Promise<{ id: string; pending: number }> {
   const res = await fetch('/api/command', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ prompt }),
+    body: JSON.stringify({ prompt, ...(userAddress ? { userAddress } : {}) }),
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')

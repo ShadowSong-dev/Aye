@@ -156,18 +156,30 @@ export const checkPriceTool = tool({
   },
 });
 
-export const proposeIntentTool = tool({
-  description:
-    'Propose an on-chain action that the human user must Aye (approve) or Nay (reject) before anything happens. ' +
-    'You DO NOT execute on-chain — proposing only enqueues the intent for human review. ' +
-    'Supported kinds: ' +
-    'swap-usdc-for-eth (Uniswap V3 USDC→WETH), ' +
-    'swap-eth-for-usdc (Uniswap V3 native ETH→USDC, router auto-wraps), ' +
-    'transfer-eth (send native ETH to an address), ' +
-    'transfer-erc20 (transfer USDC or WETH to an address), ' +
-    'approve-erc20 (set ERC20 allowance for a spender — typically the Uniswap router), ' +
-    'wrap-eth (deposit native ETH into WETH), ' +
-    'unwrap-weth (withdraw WETH back to native ETH).',
+export type ToolCtx = {
+  /** Connected wallet address from the frontend that submitted this command.
+   *  Used as the default swap recipient so swap output goes back to the user
+   *  instead of being burned to a placeholder. */
+  userAddress?: Address;
+};
+
+const BURN_ADDRESS = '0x000000000000000000000000000000000000dEaD' as Address;
+
+const proposeIntentDescription =
+  'Propose an on-chain action that the human user must Aye (approve) or Nay (reject) before anything happens. ' +
+  'You DO NOT execute on-chain — proposing only enqueues the intent for human review. ' +
+  'Supported kinds: ' +
+  'swap-usdc-for-eth (Uniswap V3 USDC→WETH), ' +
+  'swap-eth-for-usdc (Uniswap V3 native ETH→USDC, router auto-wraps), ' +
+  'transfer-eth (send native ETH to an address), ' +
+  'transfer-erc20 (transfer USDC or WETH to an address), ' +
+  'approve-erc20 (set ERC20 allowance for a spender — typically the Uniswap router), ' +
+  'wrap-eth (deposit native ETH into WETH), ' +
+  'unwrap-weth (withdraw WETH back to native ETH).';
+
+function makeProposeIntentTool(ctx: ToolCtx) {
+  return tool({
+  description: proposeIntentDescription,
   parameters: z.object({
     kind: z.enum([
       'swap-usdc-for-eth',
@@ -215,7 +227,7 @@ export const proposeIntentTool = tool({
       .string()
       .regex(/^0x[a-fA-F0-9]{40}$/)
       .optional()
-      .describe('Optional swap recipient. The frontend overrides this with the connected wallet at execution time.'),
+      .describe('Optional swap recipient. Defaults to the connected wallet that submitted the command; only set this if the user explicitly wants the output sent to a different address.'),
     to: z
       .string()
       .regex(/^0x[a-fA-F0-9]{40}$/)
@@ -243,8 +255,7 @@ export const proposeIntentTool = tool({
     if (input.kind === 'swap-usdc-for-eth') {
       const amount = input.amountUsdc ?? 1;
       const fee = input.fee ?? 3000;
-      const recipient = (input.recipient ??
-        '0x000000000000000000000000000000000000dEaD') as Address;
+      const recipient = (input.recipient ?? ctx.userAddress ?? BURN_ADDRESS) as Address;
       target = config.uniswapRouter;
       value = 0n;
       data = encodeFunctionData({
@@ -265,8 +276,7 @@ export const proposeIntentTool = tool({
     } else if (input.kind === 'swap-eth-for-usdc') {
       const amount = input.amountEth ?? 0.001;
       const fee = input.fee ?? 3000;
-      const recipient = (input.recipient ??
-        '0x000000000000000000000000000000000000dEaD') as Address;
+      const recipient = (input.recipient ?? ctx.userAddress ?? BURN_ADDRESS) as Address;
       const amountIn = parseUnits(String(amount), 18);
       target = config.uniswapRouter;
       value = amountIn;
@@ -380,9 +390,14 @@ export const proposeIntentTool = tool({
         : `failed to queue intent (status ${pushed.status}): ${pushed.error}`,
     };
   },
-});
+  });
+}
 
-export const tools = {
-  checkPrice: checkPriceTool,
-  proposeIntent: proposeIntentTool,
-};
+export function buildTools(ctx: ToolCtx = {}) {
+  return {
+    checkPrice: checkPriceTool,
+    proposeIntent: makeProposeIntentTool(ctx),
+  };
+}
+
+export const tools = buildTools();

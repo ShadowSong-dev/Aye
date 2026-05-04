@@ -27,6 +27,7 @@ export type PendingCommand = {
   id: string;
   prompt: string;
   submittedAt: number;
+  userAddress?: `0x${string}`;
 };
 
 // get the command from the frontend
@@ -38,6 +39,13 @@ export async function fetchPendingCommand(): Promise<PendingCommand | null> {
     if (!res.ok) return null;
     const body = (await res.json()) as PendingCommand | null;
     if (!body || typeof body.prompt !== 'string') return null;
+    if (
+      body.userAddress !== undefined &&
+      !/^0x[a-fA-F0-9]{40}$/.test(body.userAddress)
+    ) {
+      // drop malformed address rather than letting it leak into encoded calldata
+      delete (body as { userAddress?: string }).userAddress;
+    }
     return body;
   } catch {
     return null;

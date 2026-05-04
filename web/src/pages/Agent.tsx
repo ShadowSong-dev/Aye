@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
 import {
   Activity,
   Bot,
@@ -112,15 +113,16 @@ function CommandComposer({
   const [prompt, setPrompt] = useState('')
   const [busy, setBusy] = useState(false)
   const qc = useQueryClient()
+  const { address: account } = useAccount()
 
   const trimmed = prompt.trim()
-  const disabled = busy || trimmed.length === 0
+  const disabled = busy || trimmed.length === 0 || !account
 
   async function send() {
     if (disabled) return
     setBusy(true)
     try {
-      const r = await submitCommand(trimmed)
+      const r = await submitCommand(trimmed, account)
       toast(
         'success',
         'Command queued',
@@ -152,6 +154,12 @@ function CommandComposer({
           directly into a single intent (no judgement, no editorialising) and
           drops it in the queue for your Aye/Nay.
         </p>
+        {!account && (
+          <p className="small" style={{ margin: 0, color: 'var(--c-failure)' }}>
+            Connect your wallet first — the agent uses your address as the
+            default swap recipient.
+          </p>
+        )}
         <textarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}

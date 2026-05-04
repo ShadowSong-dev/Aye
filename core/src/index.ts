@@ -30,9 +30,9 @@ function shutdown(sig: string) {
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 
-async function runTurn(prompt: string) {
+async function runTurn(prompt: string, userAddress?: `0x${string}`) {
   try {
-    const r = await runAgentTurn({ callBudget, prompt });
+    const r = await runAgentTurn({ callBudget, prompt, userAddress });
     if (r.skipped) {
       console.warn(`[aye-core] turn skipped: ${r.reason}`);
     } else {
@@ -64,8 +64,11 @@ async function loop() {
 
     const cmd = await fetchPendingCommand();
     if (cmd) {
-      console.log(`[aye-core] command received id=${cmd.id} prompt="${cmd.prompt.slice(0, 120)}"`);
-      await runTurn(cmd.prompt);
+      console.log(
+        `[aye-core] command received id=${cmd.id} ` +
+          `user=${cmd.userAddress ?? '-'} prompt="${cmd.prompt.slice(0, 120)}"`,
+      );
+      await runTurn(cmd.prompt, cmd.userAddress);
     }
 
     if (stop) break;

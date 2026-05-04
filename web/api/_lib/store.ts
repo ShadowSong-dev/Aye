@@ -17,6 +17,7 @@ export type Command = {
   id: string
   prompt: string
   submittedAt: number
+  userAddress?: `0x${string}`
 }
 
 let _redis: Redis | null = null
@@ -138,12 +139,16 @@ export async function listCommands(): Promise<Command[]> {
   return parsed.reverse()
 }
 
-export async function enqueueCommand(prompt: string): Promise<Command> {
+export async function enqueueCommand(
+  prompt: string,
+  userAddress?: `0x${string}`,
+): Promise<Command> {
   const r = redis()
   const cmd: Command = {
     id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
     prompt,
     submittedAt: Date.now(),
+    ...(userAddress ? { userAddress } : {}),
   }
   await r.lpush(K.cmdQueue, JSON.stringify(cmd))
   await r.incr(K.cmdSubmitted)
