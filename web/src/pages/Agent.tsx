@@ -13,9 +13,11 @@ import { fetchCommandMeta, fetchQueueMeta, submitCommand } from '../lib/queue'
 import { DEFAULT_AGENT_ID } from '../lib/contracts'
 
 export function AgentPage() {
+  const { address: account } = useAccount()
   const { data: meta } = useQuery({
-    queryKey: ['queue-meta'],
-    queryFn: fetchQueueMeta,
+    // address in the key so a wallet switch reloads the scoped queue size.
+    queryKey: ['queue-meta', account ?? null],
+    queryFn: () => fetchQueueMeta(account),
     refetchInterval: 4000,
   })
   const { data: cmdMeta, refetch: refetchCmdMeta } = useQuery({

@@ -119,7 +119,9 @@ export function ReviewModal({
       }
 
       setStep('done')
-      await removeIntent(intent.intentHash)
+      // Scope removal to this wallet so a misclick (or an attacker probing
+      // hashes) can't evict another user's pending intent.
+      await removeIntent(intent.intentHash, account)
       invalidate()
       toast(
         'success',

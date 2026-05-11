@@ -47,22 +47,38 @@ function intentQueuePlugin(): Plugin {
     nonce: string
     deadline: number
     createdAt: number
+    // Wallet that submitted the originating command. The queue is scoped by
+    // this so concurrent users don't see each other's pending intents.
+    userAddress?: `0x${string}`
   }
 
+  const ADDR_RE = /^0x[a-fA-F0-9]{40}$/
   const queue: Intent[] = []
   let lastPushAt = 0
-  // Dedup by (intentHash, nonce) — intentHash alone collides across legit
-  // repeat proposals of the same action, since on-chain uniqueness comes from
-  // nonce (see AuditLog's EIP-712 TxIntent + usedNonce mapping).
+  // Dedup by (owner, intentHash, nonce) — owner is included so two users
+  // proposing the same action don't get collapsed into one queue entry.
   const seenKeys = new Set<string>()
-  const keyOf = (i: Pick<Intent, 'intentHash' | 'nonce'>) =>
-    `${i.intentHash.toLowerCase()}:${i.nonce}`
+  const ownerOf = (i: Pick<Intent, 'userAddress'>) =>
+    i.userAddress ? i.userAddress.toLowerCase() : '_'
+  const keyOf = (i: Pick<Intent, 'intentHash' | 'nonce' | 'userAddress'>) =>
+    `${ownerOf(i)}:${i.intentHash.toLowerCase()}:${i.nonce}`
 
   function prune() {
     const now = Math.floor(Date.now() / 1000)
     for (let i = queue.length - 1; i >= 0; i--) {
       if (queue[i].deadline < now) queue.splice(i, 1)
     }
+  }
+
+  function parseQuery(url: string): URLSearchParams {
+    // url begins with the matched mount path; URL parsing needs a base.
+    const u = new URL(url, 'http://localhost')
+    return u.searchParams
+  }
+
+  function parseOwner(url: string): string | undefined {
+    const v = parseQuery(url).get('userAddress')
+    return v && ADDR_RE.test(v) ? v.toLowerCase() : undefined
   }
 
   return {
@@ -75,15 +91,23 @@ function intentQueuePlugin(): Plugin {
         const url = req.url || '/'
 
         if (url.startsWith('/meta')) {
+          const owner = parseOwner(url)
+          const size = owner
+            ? queue.filter((i) => ownerOf(i) === owner).length
+            : queue.length
           return send(res, 200, {
-            queueSize: queue.length,
+            queueSize: size,
             lastPushAt,
             seenCount: seenKeys.size,
           })
         }
 
         if (req.method === 'GET') {
-          return send(res, 200, queue)
+          const owner = parseOwner(url)
+          // No owner supplied → return empty, matching the production API.
+          // This avoids leaking other users' intents to anonymous callers.
+          if (!owner) return send(res, 200, [])
+          return send(res, 200, queue.filter((i) => ownerOf(i) === owner))
         }
 
         if (req.method === 'POST') {
@@ -97,6 +121,13 @@ function intentQueuePlugin(): Plugin {
               body.nonce === null
             ) {
               return send(res, 400, { error: 'missing required fields' })
+            }
+            if (body.userAddress !== undefined && body.userAddress !== null) {
+              if (typeof body.userAddress !== 'string' || !ADDR_RE.test(body.userAddress)) {
+                return send(res, 400, {
+                  error: 'userAddress must be a 0x-prefixed 20-byte address',
+                })
+              }
             }
             const key = keyOf(body)
             if (seenKeys.has(key)) {
@@ -115,7 +146,12 @@ function intentQueuePlugin(): Plugin {
           const m = url.match(/^\/(0x[0-9a-fA-F]{64})/)
           if (!m) return send(res, 400, { error: 'expected /api/intent/:hash' })
           const hash = m[1].toLowerCase()
-          const idx = queue.findIndex((i) => i.intentHash.toLowerCase() === hash)
+          const owner = parseOwner(url)
+          const idx = queue.findIndex(
+            (i) =>
+              i.intentHash.toLowerCase() === hash &&
+              (owner === undefined || ownerOf(i) === owner),
+          )
           if (idx >= 0) queue.splice(idx, 1)
           return send(res, 200, { ok: true, removed: idx >= 0 })
         }

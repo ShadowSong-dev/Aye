@@ -11,6 +11,10 @@ export type Intent = {
   nonce: string
   deadline: number
   createdAt: number
+  // Wallet that submitted the originating command. Used to scope GET /api/intent
+  // so concurrent users on the same deployment don't see each other's pending
+  // proposals. Missing means "legacy/unscoped" — bucketed under `_`.
+  userAddress?: `0x${string}`
 }
 
 export type Command = {
@@ -43,6 +47,22 @@ const K = {
   cmdConsumed: 'commands:totalConsumed',
 } as const
 
+const UNSCOPED = '_'
+
+function ownerOf(intentOrAddr: Intent | string | undefined | null): string {
+  if (!intentOrAddr) return UNSCOPED
+  const raw =
+    typeof intentOrAddr === 'string' ? intentOrAddr : intentOrAddr.userAddress
+  return raw ? raw.toLowerCase() : UNSCOPED
+}
+
+// Storage field: `${owner}:${intentHash}` — gives each wallet its own slot
+// inside the single `intents:pending` hash. Owner is the lowercased submitting
+// wallet, or `_` for legacy/unscoped intents.
+function fieldFor(owner: string, intentHash: string): string {
+  return `${owner}:${intentHash.toLowerCase()}`
+}
+
 function nowSec() {
   return Math.floor(Date.now() / 1000)
 }
@@ -60,11 +80,12 @@ function parseIntent(raw: unknown): Intent | null {
   return null
 }
 
-export async function listIntents(): Promise<Intent[]> {
+export async function listIntents(userAddress?: string): Promise<Intent[]> {
   const r = redis()
   const all = await r.hgetall<Record<string, unknown>>(K.intentHash)
   if (!all) return []
   const now = nowSec()
+  const owner = userAddress ? userAddress.toLowerCase() : null
   const live: Intent[] = []
   const expiredFields: string[] = []
   for (const [field, raw] of Object.entries(all)) {
@@ -73,8 +94,18 @@ export async function listIntents(): Promise<Intent[]> {
       expiredFields.push(field)
       continue
     }
-    if (it.deadline < now) expiredFields.push(field)
-    else live.push(it)
+    if (it.deadline < now) {
+      expiredFields.push(field)
+      continue
+    }
+    // Scope by submitter when requested. Fields stored before this change live
+    // under `_` and have no userAddress — surface them only when no filter is
+    // requested, so legacy entries don't leak across wallets.
+    if (owner !== null) {
+      const itOwner = ownerOf(it)
+      if (itOwner !== owner) continue
+    }
+    live.push(it)
   }
   if (expiredFields.length) await r.hdel(K.intentHash, ...expiredFields)
   live.sort((a, b) => a.createdAt - b.createdAt)
@@ -85,34 +116,52 @@ export async function enqueueIntent(
   intent: Intent,
 ): Promise<{ ok: true; queued: number } | { ok: true; dedup: true }> {
   const r = redis()
-  const dedupKey = `${intent.intentHash.toLowerCase()}:${intent.nonce}`
+  const owner = ownerOf(intent)
+  // Dedup by (owner, intentHash, nonce) — owner is included so two users
+  // proposing identical actions don't collide in the seen-set.
+  const dedupKey = `${owner}:${intent.intentHash.toLowerCase()}:${intent.nonce}`
   const added = await r.sadd(K.intentSeen, dedupKey)
   if (added === 0) return { ok: true, dedup: true }
-  await r.hset(K.intentHash, { [intent.intentHash.toLowerCase()]: JSON.stringify(intent) })
+  await r.hset(K.intentHash, {
+    [fieldFor(owner, intent.intentHash)]: JSON.stringify(intent),
+  })
   await r.set(K.intentLastPush, Date.now())
   const size = await r.hlen(K.intentHash)
   return { ok: true, queued: size }
 }
 
-export async function removeIntent(hash: string): Promise<boolean> {
+export async function removeIntent(
+  hash: string,
+  userAddress?: string,
+): Promise<boolean> {
   const r = redis()
-  const removed = await r.hdel(K.intentHash, hash.toLowerCase())
+  const owner = ownerOf(userAddress)
+  // Try the scoped field first; fall back to legacy unscoped `_:` for entries
+  // written before per-user scoping landed.
+  const fields =
+    owner === UNSCOPED
+      ? [fieldFor(UNSCOPED, hash)]
+      : [fieldFor(owner, hash), fieldFor(UNSCOPED, hash)]
+  const removed = await r.hdel(K.intentHash, ...fields)
   return removed > 0
 }
 
-export async function intentMeta(): Promise<{
+export async function intentMeta(userAddress?: string): Promise<{
   queueSize: number
   lastPushAt: number
   seenCount: number
 }> {
   const r = redis()
-  const [queueSize, lastPushAt, seenCount] = await Promise.all([
-    r.hlen(K.intentHash),
+  // queueSize is scoped to the caller when an address is supplied so the
+  // Agent page's "Queue size" stat lines up with what they see in the Queue.
+  // seenCount and lastPushAt remain global lifetime stats.
+  const [scopedItems, lastPushAt, seenCount] = await Promise.all([
+    listIntents(userAddress),
     r.get<number>(K.intentLastPush),
     r.scard(K.intentSeen),
   ])
   return {
-    queueSize: queueSize ?? 0,
+    queueSize: scopedItems.length,
     lastPushAt: lastPushAt ?? 0,
     seenCount: seenCount ?? 0,
   }

@@ -18,6 +18,10 @@ export type ProposedIntent = {
   nonce: string;
   deadline: number;
   createdAt: number;
+  // Wallet that submitted the originating command. The web queue is scoped by
+  // this so two users on the same deployment don't see each other's pending
+  // proposals. Optional for backwards-compat with anonymous/legacy callers.
+  userAddress?: Address;
 };
 
 // Frontend must compute the intentHash with the exact same encoding,

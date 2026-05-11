@@ -16,6 +16,9 @@ export type ProposedIntent = {
   nonce: string
   deadline: number
   createdAt: number
+  // Wallet that submitted the originating command. Used by the queue to scope
+  // listings per user; absent for anonymous/legacy intents.
+  userAddress?: Address
 }
 
 /**

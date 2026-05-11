@@ -1,32 +1,58 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useAccount } from 'wagmi'
 import type { ProposedIntent } from './intent'
 
 const QUEUE_KEY = ['intent-queue'] as const
 
-export async function fetchIntents(): Promise<ProposedIntent[]> {
-  const res = await fetch('/api/intent', { headers: { accept: 'application/json' } })
+// All /api/intent reads are scoped to the connected wallet. Without an
+// address the server returns an empty list — this keeps a deployed instance
+// from leaking pending intents between users.
+function withAddress(url: string, userAddress?: `0x${string}`): string {
+  if (!userAddress) return url
+  const sep = url.includes('?') ? '&' : '?'
+  return `${url}${sep}userAddress=${userAddress}`
+}
+
+export async function fetchIntents(
+  userAddress?: `0x${string}`,
+): Promise<ProposedIntent[]> {
+  if (!userAddress) return []
+  const res = await fetch(withAddress('/api/intent', userAddress), {
+    headers: { accept: 'application/json' },
+  })
   if (!res.ok) throw new Error(`queue fetch failed: ${res.status}`)
   return (await res.json()) as ProposedIntent[]
 }
 
-export async function fetchQueueMeta(): Promise<{
+export async function fetchQueueMeta(
+  userAddress?: `0x${string}`,
+): Promise<{
   queueSize: number
   lastPushAt: number
   seenCount: number
 }> {
-  const res = await fetch('/api/intent/meta')
+  const res = await fetch(withAddress('/api/intent/meta', userAddress))
   if (!res.ok) throw new Error(`meta fetch failed: ${res.status}`)
   return await res.json()
 }
 
-export async function removeIntent(intentHash: string): Promise<void> {
-  await fetch(`/api/intent/${intentHash}`, { method: 'DELETE' })
+export async function removeIntent(
+  intentHash: string,
+  userAddress?: `0x${string}`,
+): Promise<void> {
+  await fetch(withAddress(`/api/intent/${intentHash}`, userAddress), {
+    method: 'DELETE',
+  })
 }
 
 export function useIntentQueue() {
+  const { address } = useAccount()
   return useQuery({
-    queryKey: QUEUE_KEY,
-    queryFn: fetchIntents,
+    // address is part of the key so React Query re-fetches (and re-caches
+    // separately) when the user switches wallets.
+    queryKey: [...QUEUE_KEY, address ?? null] as const,
+    queryFn: () => fetchIntents(address),
+    enabled: !!address,
     refetchInterval: 4000,
     staleTime: 2000,
   })

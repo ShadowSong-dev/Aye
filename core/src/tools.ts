@@ -377,6 +377,7 @@ function makeProposeIntentTool(ctx: ToolCtx) {
       nonce: nonce.toString(),
       deadline,
       createdAt: Date.now(),
+      ...(ctx.userAddress ? { userAddress: ctx.userAddress } : {}),
     };
 
     const pushed = await pushIntent(proposed);
